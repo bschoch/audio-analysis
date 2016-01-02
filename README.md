@@ -1,4 +1,4 @@
 # audio-analysis
 
-go get ./...
-go run main.go
+go get ./...  
+go run main.go  
