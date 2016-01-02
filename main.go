@@ -15,17 +15,10 @@ import (
 const (
 	fftSize               = 1024.0
 	smoothingTimeConstant = 0.2
-	maxDecibels           = -20.0 // -20.0 works better
-	minDecibels           = -80.0 // -80.0 works better
 	ucharMax              = 255.0
-	threshold             = 14
+	threshold             = 20
 	sampleRate            = 44100.0
 	minimumTime           = 80
-)
-
-var (
-	nonMaxMin int
-	maxMin    int
 )
 
 func main() {
@@ -59,16 +52,15 @@ func main() {
 	for i := 48 + int(listSize) + 4; i <= len(rawFile); i += 4 {
 		audio = append(audio, (getInt16(rawFile[i-4:i-2])+getInt16(rawFile[i-2:i]))/2)
 	}
-	fft := doFFT(audio)
-	fmt.Println(len(audio), len(fft))
-	fmt.Println(nonMaxMin, maxMin)
+	fftInDecibels := convertToDecibels(doFFT(audio))
+	fmt.Println(len(audio), len(fftInDecibels))
 
-	var avg []byte
-	for i := range fft {
-		avg = append(avg, getAvg(fft[i]))
+	var avg []float64
+	for i := range fftInDecibels {
+		avg = append(avg, getAvgFloat64(fftInDecibels[i]))
 	}
 
-	var prev byte = avg[0]
+	var prev float64 = avg[0]
 	var currT, prevT int
 	var result []int
 	for i := 0; i < len(avg); i += 1 {
@@ -83,15 +75,15 @@ func main() {
 	fmt.Println(result)
 }
 
-func getAvg(data []byte) byte {
-	var total int
-	for _, b := range data {
-		total += int(b)
+func getAvgFloat64(data []float64) float64 {
+	var total float64
+	for _, f := range data {
+		total += f
 	}
-	return byte(total / len(data))
+	return total / float64(len(data))
 }
 
-func doFFT(data []int16) (result [][]byte) {
+func doFFT(data []int16) (result [][]float64) {
 	var dataF []float64
 	prev := make([]float64, fftSize/2) // stub out all zero values
 	for _, f := range data {
@@ -102,38 +94,11 @@ func doFFT(data []int16) (result [][]byte) {
 			for j := 0; j < fftSize/2; j++ {
 				abs = append(abs, smoothingTimeConstant*prev[j]+(1-smoothingTimeConstant)*cmplx.Abs(comp[j])/fftSize)
 			}
-			result = append(result, convertToUnsignedBytes(abs))
+			result = append(result, abs)
 			prev = abs
 			dataF = nil
 		}
 		dataF = append(dataF, float64(f))
-	}
-	return
-}
-
-func convertToUnsignedBytes(data []float64) (result []byte) {
-	rangeScaleFactor := 1 / (maxDecibels - minDecibels)
-	for _, linearValue := range data {
-		var dbMag float64
-		if linearValue == 0 {
-			dbMag = minDecibels
-		} else {
-			dbMag = linearToDecibels(linearValue)
-		}
-
-		scaledValue := ucharMax * (dbMag - minDecibels) * rangeScaleFactor
-		if scaledValue < 0 {
-			scaledValue = 0
-		}
-		if scaledValue > ucharMax {
-			scaledValue = ucharMax
-		}
-		if scaledValue > 0 && scaledValue < ucharMax {
-			nonMaxMin++
-		} else {
-			maxMin++
-		}
-		result = append(result, byte(scaledValue))
 	}
 	return
 }
@@ -153,6 +118,17 @@ func getInt32(data []byte) (ret int32) {
 	}
 	buf := bytes.NewBuffer(data)
 	binary.Read(buf, binary.LittleEndian, &ret)
+	return
+}
+
+func convertToDecibels(data [][]float64) (result [][]float64) {
+	for i := range data {
+		var fs []float64
+		for j := range data[i] {
+			fs = append(fs, linearToDecibels(data[i][j]))
+		}
+		result = append(result, fs)
+	}
 	return
 }
 
